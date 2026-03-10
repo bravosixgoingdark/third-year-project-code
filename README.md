@@ -13,5 +13,5 @@ You should only build or run this code in a **controlled environment**, such as 
 
 Do **not** run this software on production systems.
 
-By using this code, you acknowledge that you understand the potential risks involved and no warrenties will be given. 
+By using this code, you acknowledge that you understand the potential risks involved and no warranties will be given. 
 
