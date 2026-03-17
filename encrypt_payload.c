@@ -98,8 +98,10 @@ BOOL EncryptAES(IN PBYTE pRawDataBuffer, IN SIZE_T sRawBufferSize, IN PBYTE pAes
 
 	PBYTE	pNewBuffer		= pRawDataBuffer;
 	SIZE_T	sNewBufferSize	= sRawBufferSize;
+	// Init the AEX_ctx struct for tiny-AES
 	struct	AES_ctx AesCtx	= { 0x00 };
 
+	// Padding for the tiny-AES library as they only supports chunks of 16 bytes
 	if (sRawBufferSize % 16 != 0x00) {
 
 		sNewBufferSize		= sRawBufferSize + 16 - (sRawBufferSize % 16);
@@ -112,7 +114,7 @@ BOOL EncryptAES(IN PBYTE pRawDataBuffer, IN SIZE_T sRawBufferSize, IN PBYTE pAes
 
 		memcpy(pNewBuffer, pRawDataBuffer, sRawBufferSize);
 	}
-
+	// Encrypts the buffer
 	RtlSecureZeroMemory(&AesCtx, sizeof(AesCtx));
 	AES_init_ctx_iv(&AesCtx, pAesKey, pAesIv);
 	AES_CBC_encrypt_buffer(&AesCtx, pNewBuffer, sNewBufferSize);

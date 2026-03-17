@@ -1,7 +1,9 @@
 # third-year-project-code
 Malware code for third year project. 
 
-This branch contains code for a basic, insecure shellcode loader that will load a msfvenom payload. 
+This branch contains code for a shellcode stager will fetch an AES encrypted shellcode remotely and then decrypts then execute it. 
+
+Featured code from Tiny-AES - https://github.com/kokke/tiny-AES-c 
 
 ## ⚠️ Warning
 
@@ -13,5 +15,4 @@ You should only build or run this code in a **controlled environment**, such as 
 
 Do **not** run this software on production systems.
 
-By using this code, you acknowledge that you understand the potential risks involved and no warranties will be given. 
-
+By using this code, you acknowledge that you understand the potential risks involved and no warranties will be given.

