@@ -759,3 +759,4 @@ typedef enum _SYSTEM_INFORMATION_CLASS
 
 #endif // !_STRUCTS_H
 
+
