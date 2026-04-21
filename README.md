@@ -1,9 +1,9 @@
 # third-year-project-code
 Malware code for third year project. 
 
-This branch contains code for a shellcode stager will fetch an AES encrypted shellcode remotely and then decrypts then execute it. 
+This branch utilized a combination of Hell'sHall technique from `https://github.com/Maldev-Academy/HellHall` and EDR unhooking from `https://trickster0.github.io/posts/Halo's-Gate-Evolves-to-Tartarus-Gate` to achieve Indirect Syscall execution for a classic injected shellcode 
 
-Featured code from Tiny-AES - https://github.com/kokke/tiny-AES-c 
+Also code from Tiny-AES - https://github.com/kokke/tiny-AES-c 
 
 ## ⚠️ Warning
 
