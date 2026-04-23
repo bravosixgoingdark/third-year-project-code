@@ -3,7 +3,7 @@ Malware code for third year project.
 
 This branch contains code for a shellcode stager will fetch an AES encrypted shellcode remotely and then decrypts then execute it. 
 
-Featured code from Tiny-AES - https://github.com/kokke/tiny-AES-c 
+Featured code from Tiny-AES - https://github.com/kokke/tiny-AES-c and Hell's Hall (https://github.com/Maldev-Academy/HellHall) 
 
 ## ⚠️ Warning
 
